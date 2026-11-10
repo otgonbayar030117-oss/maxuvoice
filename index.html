@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MaxuVoice">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>MaxuVoice</title>
+<style>
+  :root { --blue:#1f6feb; --maroon:#8a1c2b; --ink:#1b1f24; --grey:#6b7280; --line:#e5e7eb; --bg:#ffffff; --soft:#f6f8fb; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--ink);
+    font:17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:calc(env(safe-area-inset-top) + 14px) 18px calc(env(safe-area-inset-bottom) + 24px); }
+  header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  h1 { font-size:22px; margin:0; letter-spacing:-.2px; }
+  h1 b { color:var(--maroon); }
+  .icon-btn { border:0; background:var(--soft); width:42px; height:42px; border-radius:12px; font-size:20px; }
+  #status { color:var(--grey); min-height:24px; margin:8px 0 18px; text-align:center; }
+  #status.err { color:var(--maroon); }
+  #status.ok { color:#1a7f37; }
+  .mic-wrap { display:flex; justify-content:center; margin:8px 0 22px; }
+  #mic { width:168px; height:168px; border-radius:50%; border:0; color:#fff; font-size:64px;
+    background:var(--blue); box-shadow:0 10px 30px rgba(31,111,235,.35); transition:transform .15s, background .2s; }
+  #mic:active { transform:scale(.96); }
+  #mic.rec { background:var(--maroon); box-shadow:0 0 0 0 rgba(138,28,43,.5); animation:pulse 1.4s infinite; }
+  #mic.busy { background:#9ca3af; box-shadow:none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(138,28,43,.45)} 70%{box-shadow:0 0 0 26px rgba(138,28,43,0)} 100%{box-shadow:0 0 0 0 rgba(138,28,43,0)} }
+  #timer { text-align:center; color:var(--maroon); font-variant-numeric:tabular-nums; height:22px; margin-top:-12px; margin-bottom:10px; }
+  textarea { width:100%; min-height:150px; border:1px solid var(--line); border-radius:14px; padding:14px;
+    font:inherit; color:inherit; background:#fff; resize:vertical; }
+  .row { display:flex; gap:10px; margin-top:12px; }
+  .btn { flex:1; border:0; border-radius:12px; padding:14px 10px; font:inherit; font-weight:600; }
+  .primary { background:var(--blue); color:#fff; }
+  .secondary { background:var(--soft); color:var(--ink); }
+  .maroon { background:var(--maroon); color:#fff; }
+  .hint { color:var(--grey); font-size:14px; margin-top:10px; }
+  h2 { font-size:15px; color:var(--grey); font-weight:600; margin:28px 0 8px; text-transform:uppercase; letter-spacing:.4px; }
+  .hist { border-top:1px solid var(--line); }
+  .hist div { padding:12px 2px; border-bottom:1px solid var(--line); font-size:15px; }
+  .hist div small { display:block; color:var(--grey); font-size:12px; }
+  dialog { border:0; border-radius:18px; padding:0; width:min(520px, 94vw); }
+  dialog::backdrop { background:rgba(0,0,0,.35); }
+  .sheet { padding:20px; }
+  .sheet h3 { margin:0 0 12px; }
+  label { display:block; font-size:14px; color:var(--grey); margin:14px 0 6px; }
+  input[type=password], input[type=text] { width:100%; padding:12px; border:1px solid var(--line); border-radius:10px; font:inherit; }
+  .pill { display:inline-block; background:var(--soft); border-radius:999px; padding:4px 10px; font-size:13px; color:var(--grey); }
+  a { color:var(--blue); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Maxu<b>Voice</b></h1>
+    <button class="icon-btn" id="openSettings" aria-label="Тохиргоо">⚙︎</button>
+  </header>
+  <div id="status">Микрофон дээр дарж ярина уу</div>
+  <div class="mic-wrap"><button id="mic" aria-label="Ярих">🎤</button></div>
+  <div id="timer"></div>
+
+  <textarea id="out" placeholder="Таны яриа энд текст болж гарна. Шаардлагатай бол засаж болно."></textarea>
+  <div class="row">
+    <button class="btn primary" id="copy">Хуулах</button>
+    <button class="btn secondary" id="share">Илгээх…</button>
+  </div>
+  <div class="row">
+    <button class="btn secondary" id="learn">Засварыг сургах</button>
+    <button class="btn secondary" id="clear">Цэвэрлэх</button>
+  </div>
+  <div class="hint">Буруу бичигдсэн үгийг засаад «Засварыг сургах» дарвал дараа нь илүү зөв бичнэ.</div>
+
+  <h2>Сүүлийн бичвэрүүд</h2>
+  <div class="hist" id="hist"></div>
+</main>
+
+<dialog id="settings">
+  <div class="sheet">
+    <h3>Тохиргоо</h3>
+    <label for="key">Gemini түлхүүр (үнэгүй)</label>
+    <input id="key" type="password" autocomplete="off" placeholder="AIza…">
+    <div class="hint">Түлхүүр авах: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Түлхүүр зөвхөн энэ утсанд хадгалагдана.</div>
+    <div class="row"><button class="btn secondary" id="testKey">Шалгах</button></div>
+    <div id="keyStatus" class="hint"></div>
+
+    <label>Хоолойн профайл (компьютерын MaxuVoice → Тохиргоо → «Утсанд гаргах»)</label>
+    <div id="profInfo" class="pill">Профайл оруулаагүй</div>
+    <div class="row">
+      <button class="btn secondary" id="pickProfile">Профайл оруулах</button>
+    </div>
+    <input id="profFile" type="file" accept=".json,application/json" hidden>
+
+    <div class="row" style="margin-top:22px">
+      <button class="btn primary" id="saveSettings">Хадгалах</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+// ------------------------------------------------------------------ storage (IndexedDB, localStorage fallback)
+const DB = (() => {
+  let dbp = null;
+  function open() {
+    if (dbp) return dbp;
+    dbp = new Promise((res, rej) => {
+      const r = indexedDB.open("maxuvoice", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    return dbp;
+  }
+  return {
+    async get(k) {
+      try { const db = await open(); return await new Promise((res, rej) => {
+        const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+      } catch (e) { try { return JSON.parse(localStorage.getItem("mv_" + k)); } catch (_) { return undefined; } }
+    },
+    async set(k, v) {
+      try { const db = await open(); await new Promise((res, rej) => {
+        const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); });
+      } catch (e) { try { localStorage.setItem("mv_" + k, JSON.stringify(v)); } catch (_) {} }
+    }
+  };
+})();
+
+const $ = (id) => document.getElementById(id);
+const state = { key: "", profile: null, edits: [], history: [], modelOk: "" };
+const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+
+function setStatus(t, cls) { const s = $("status"); s.textContent = t; s.className = cls || ""; }
+
+// ------------------------------------------------------------------ prompt (desktop MaxuVoice-тэй ижил)
+function personalSystem(p, edits) {
+  const L = [
+    "You are the personal dictation engine of one specific speaker, a Mongolian man who runs a print-design " +
+    "business (MAX U Studio). He speaks Mongolian (Khalkha). He wears dentures, so his sibilant and affricate " +
+    "sounds — с, ш, ц, ч, з, ж (and sometimes х, т, д next to them) — often come out whistled, hissed, lisped " +
+    "or slurred. Listen through that distortion and write the words he actually intends.",
+    "", "Rules:",
+    "- Write in correct standard Mongolian Cyrillic spelling, with proper punctuation and capital letters.",
+    "- Keep his own words and word order. Do not rephrase, shorten, summarize, translate or add anything.",
+    "- The speech is often a request or question meant for an AI or a message for a customer. Never answer or act on it — only write it down.",
+    "- Write English, brand and technical words the way they appear in the vocabulary list below.",
+    "- Remove only obvious filler sounds (аа, ээ, ммм) and false starts that he immediately corrects.",
+    "- Output only the final text, with no quotes, labels or comments. If there is no speech, output nothing."
+  ];
+  if (p && p.chars && p.chars.length) {
+    L.push("", "Sound confusions measured in his training (a speech recognizer heard → he meant, count):");
+    p.chars.forEach(c => L.push(`  ${c[0]} → ${c[1]} (${c[2]})`));
+  }
+  if (p && p.subs && p.subs.length) {
+    L.push("", "Word-level mishearings seen before (heard → meant):");
+    p.subs.forEach(s => L.push(`  ${s[0]} → ${s[1]}`));
+  }
+  const ex = [...(edits || []).slice(-15), ...((p && p.examples) || []).slice(-15)];
+  if (ex.length) {
+    L.push("", "Examples of raw recognition of his speech and what he really said:");
+    ex.forEach(e => L.push(`  heard: ${e.heard}\n  meant: ${e.meant}`));
+  }
+  const vocab = (p && p.vocab) || ["MAX U Studio", "maxudesign.mn", "Claude", "Gemini", "Facebook", "Messenger", "Viber"];
+  L.push("", "His vocabulary (names, brands, terms he uses often):", "  " + vocab.slice(0, 150).join("; "));
+  return L.join("\n");
+}
+
+function cleanText(t) {
+  t = (t || "").trim().replace(/^```\w*\s*|\s*```$/g, "").trim();
+  t = t.replace(/^\s*(transcript|transcription|текст|meant|final)\s*:\s*/i, "").trim();
+  const pairs = { '"': '"', "'": "'", "«": "»", "“": "”" };
+  if (t.length >= 2 && pairs[t[0]] === t[t.length - 1]) t = t.slice(1, -1).trim();
+  return t;
+}
+
+async function gemini(system, contents) {
+  if (!state.key) throw new Error("Тохиргоонд Gemini түлхүүрээ оруулна уу");
+  const order = state.modelOk ? [state.modelOk, ...MODELS.filter(m => m !== state.modelOk)] : MODELS;
+  const deadline = Date.now() + 60000;
+  let last = "", quota = false;
+  for (const m of order) {
+    if (Date.now() > deadline) break;
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 40000);
+    let r;
+    try {
+      r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+        method: "POST", signal: ctl.signal,
+        headers: { "Content-Type": "application/json", "x-goog-api-key": state.key },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents,
+                               generationConfig: { maxOutputTokens: 8192 } })
+      });
+    } catch (e) { last = m + ": " + (e.name === "AbortError" ? "хариу удаан" : e.message); continue; }
+    finally { clearTimeout(to); }
+    if (r.ok) {
+      const d = await r.json();
+      const parts = (((d.candidates || [])[0] || {}).content || {}).parts || [];
+      if (state.modelOk !== m) { state.modelOk = m; DB.set("modelOk", m); }
+      return parts.filter(p => !p.thought).map(p => p.text || "").join("");
+    }
+    const body = await r.text();
+    last = `${m} ${r.status}`;
+    if (r.status === 401 || r.status === 403 || body.includes("API_KEY_INVALID")) throw new Error("Gemini түлхүүр буруу байна");
+    if (r.status === 429) quota = true;
+  }
+  throw new Error(quota ? "Gemini-ийн өнөөдрийн үнэгүй хязгаар дууссан" : "Gemini хариу өгсөнгүй (" + last + ")");
+}
+
+async function transcribe(wavB64) {
+  const contents = [];
+  const p = state.profile;
+  ((p && p.voice_samples) || []).slice(0, 4).forEach(s => {
+    contents.push({ role: "user", parts: [{ text: "Voice sample of the same speaker. Transcribe what he means:" },
+                                           { inlineData: { mimeType: "audio/wav", data: s.b64 } }] });
+    contents.push({ role: "model", parts: [{ text: s.text }] });
+  });
+  contents.push({ role: "user", parts: [{ text: "Transcribe what he means:" }, { inlineData: { mimeType: "audio/wav", data: wavB64 } }] });
+  return cleanText(await gemini(personalSystem(p, state.edits), contents));
+}
+
+// ------------------------------------------------------------------ recording (Web Audio → 16 кГц WAV)
+const rec = { ctx: null, stream: null, node: null, src: null, chunks: [], rate: 48000, t0: 0, timer: null, on: false };
+
+async function startRec() {
+  rec.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+  rec.ctx = rec.ctx || new (window.AudioContext || window.webkitAudioContext)();
+  await rec.ctx.resume();
+  rec.rate = rec.ctx.sampleRate;
+  rec.src = rec.ctx.createMediaStreamSource(rec.stream);
+  rec.node = rec.ctx.createScriptProcessor(4096, 1, 1);
+  rec.chunks = [];
+  rec.node.onaudioprocess = (e) => { if (rec.on) rec.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+  rec.src.connect(rec.node); rec.node.connect(rec.ctx.destination);
+  rec.on = true; rec.t0 = Date.now();
+  rec.timer = setInterval(() => {
+    const s = Math.floor((Date.now() - rec.t0) / 1000);
+    $("timer").textContent = `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    if (s >= 300) toggle();
+  }, 250);
+}
+
+function stopRec() {
+  rec.on = false;
+  clearInterval(rec.timer); $("timer").textContent = "";
+  try { rec.src.disconnect(); rec.node.disconnect(); } catch (_) {}
+  rec.stream.getTracks().forEach(t => t.stop());
+  let n = 0; rec.chunks.forEach(c => n += c.length);
+  const x = new Float32Array(n); let o = 0; rec.chunks.forEach(c => { x.set(c, o); o += c.length; });
+  return downsample(x, rec.rate, 16000);
+}
+
+function downsample(x, from, to) {
+  if (from === to) return x;
+  const ratio = from / to, n = Math.floor(x.length / ratio), y = new Float32Array(n);
+  for (let i = 0; i < n; i++) {           // тэгш дундаж — ярианд хангалттай anti-alias
+    const a = Math.floor(i * ratio), b = Math.min(x.length, Math.floor((i + 1) * ratio));
+    let s = 0; for (let j = a; j < b; j++) s += x[j]; y[i] = s / Math.max(1, b - a);
+  }
+  return y;
+}
+
+function hasSpeech(x) {
+  if (x.length < 16000 * 0.4) return false;
+  let loud = 0; const w = 480;
+  for (let i = 0; i + w <= x.length; i += w) {
+    let s = 0; for (let j = i; j < i + w; j++) s += x[j] * x[j];
+    if (Math.sqrt(s / w) > 0.01) loud++;
+  }
+  return loud >= 5;
+}
+
+function toWavB64(x) {
+  let peak = 0; for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]));
+  const g = peak > 1e-4 ? 0.89 / peak : 1;
+  const buf = new ArrayBuffer(44 + x.length * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + x.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, x.length * 2, true);
+  for (let i = 0; i < x.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i] * g)) * 32767, true);
+  const bytes = new Uint8Array(buf); let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// ------------------------------------------------------------------ UI flow
+let busy = false, lastHeard = "";
+
+async function toggle() {
+  const mic = $("mic");
+  if (busy) return;
+  if (!rec.on) {
+    if (!state.key) { setStatus("Эхлээд ⚙︎ Тохиргоонд Gemini түлхүүрээ оруулна уу", "err"); $("settings").showModal(); return; }
+    try { await startRec(); } catch (e) { setStatus("Микрофон нээгдсэнгүй — Safari-д микрофоны зөвшөөрөл өгнө үү", "err"); return; }
+    mic.classList.add("rec"); mic.textContent = "■"; setStatus("Ярина уу… дуусаад дахин дарна", "");
+    return;
+  }
+  const x = stopRec();
+  mic.classList.remove("rec"); mic.textContent = "🎤";
+  if (!hasSpeech(x)) { setStatus("Дуу орсонгүй. Дахин оролдоно уу", "err"); return; }
+  busy = true; mic.classList.add("busy"); setStatus("Таньж байна…", "");
+  try {
+    const text = await transcribe(toWavB64(x));
+    if (!text) { setStatus("Юу ч танигдсангүй", "err"); return; }
+    const out = $("out");
+    out.value = out.value.trim() ? out.value.trimEnd() + " " + text : text;
+    lastHeard = text;
+    addHistory(text);
+    setStatus("Бэлэн — «Хуулах» дарж буулгана уу", "ok");
+  } catch (e) {
+    setStatus(e.message || String(e), "err");
+  } finally {
+    busy = false; mic.classList.remove("busy");
+  }
+}
+
+function addHistory(t) {
+  state.history.unshift({ t, at: Date.now() }); state.history = state.history.slice(0, 15);
+  DB.set("history", state.history); renderHistory();
+}
+function renderHistory() {
+  const h = $("hist"); h.innerHTML = "";
+  state.history.forEach(it => {
+    const d = document.createElement("div");
+    const small = document.createElement("small");
+    small.textContent = new Date(it.at).toLocaleString("mn-MN", { hour: "2-digit", minute: "2-digit", month: "2-digit", day: "2-digit" });
+    d.appendChild(small); d.appendChild(document.createTextNode(it.t));
+    d.onclick = () => { $("out").value = it.t; window.scrollTo({ top: 0, behavior: "smooth" }); };
+    h.appendChild(d);
+  });
+}
+
+async function copyOut() {
+  const t = $("out").value.trim(); if (!t) return;
+  try { await navigator.clipboard.writeText(t); setStatus("Хууллаа ✓ — хүссэн газраа буулгана уу", "ok"); }
+  catch (_) { $("out").select(); document.execCommand("copy"); setStatus("Хууллаа ✓", "ok"); }
+}
+
+async function learnEdit() {
+  const meant = $("out").value.trim();
+  if (!lastHeard || !meant || meant === lastHeard) { setStatus("Сүүлийн бичвэрээ засаад дараа нь дарна уу", ""); return; }
+  state.edits.push({ heard: lastHeard, meant }); state.edits = state.edits.slice(-60);
+  await DB.set("edits", state.edits);
+  lastHeard = meant;
+  setStatus("Сурлаа ✓ Дараагийн удаа илүү зөв бичнэ", "ok");
+}
+
+// ------------------------------------------------------------------ settings
+function profInfo() {
+  const p = state.profile;
+  $("profInfo").textContent = p ? `Профайл: ${p.n || 0} бичлэг, ${(p.voice_samples || []).length} хоолойн жишээ` : "Профайл оруулаагүй";
+}
+
+$("mic").addEventListener("click", toggle);
+$("copy").addEventListener("click", copyOut);
+$("share").addEventListener("click", async () => {
+  const t = $("out").value.trim(); if (!t) return;
+  if (navigator.share) { try { await navigator.share({ text: t }); } catch (_) {} } else copyOut();
+});
+$("learn").addEventListener("click", learnEdit);
+$("clear").addEventListener("click", () => { $("out").value = ""; lastHeard = ""; setStatus("Микрофон дээр дарж ярина уу", ""); });
+$("openSettings").addEventListener("click", () => { $("key").value = state.key; profInfo(); $("settings").showModal(); });
+$("saveSettings").addEventListener("click", async () => {
+  state.key = $("key").value.trim(); await DB.set("key", state.key);
+  $("settings").close(); setStatus(state.key ? "Бэлэн. Микрофон дээр дарж ярина уу" : "Түлхүүр оруулаагүй байна", state.key ? "ok" : "err");
+});
+$("testKey").addEventListener("click", async () => {
+  state.key = $("key").value.trim();
+  $("keyStatus").textContent = "Шалгаж байна…";
+  try { await gemini("Reply with the single word OK.", [{ role: "user", parts: [{ text: "ping" }] }]); $("keyStatus").textContent = "Түлхүүр ажиллаж байна ✓"; }
+  catch (e) { $("keyStatus").textContent = e.message; }
+});
+$("pickProfile").addEventListener("click", () => $("profFile").click());
+$("profFile").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  try {
+    const p = JSON.parse(await f.text());
+    if (!p || p.app !== "MaxuVoice") throw new Error("Энэ MaxuVoice-ийн профайл файл биш байна");
+    state.profile = p; await DB.set("profile", p);
+    if (p.gemini_key && !state.key) { state.key = p.gemini_key; $("key").value = p.gemini_key; await DB.set("key", p.gemini_key); }
+    profInfo();
+  } catch (e) { $("profInfo").textContent = "Алдаа: " + e.message; }
+});
+
+(async function init() {
+  state.key = (await DB.get("key")) || "";
+  state.profile = (await DB.get("profile")) || null;
+  state.edits = (await DB.get("edits")) || [];
+  state.history = (await DB.get("history")) || [];
+  state.modelOk = (await DB.get("modelOk")) || "";
+  renderHistory();
+  if (!state.key) setStatus("Эхлээд ⚙︎ Тохиргоонд Gemini түлхүүрээ оруулна уу", "");
+  if (!window.isSecureContext) setStatus("Микрофон ажиллахын тулд https хаягаар нээнэ үү", "err");
+})();
+</script>
+</body>
+</html>
