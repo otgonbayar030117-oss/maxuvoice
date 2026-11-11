@@ -61,7 +61,7 @@
     <h1>Maxu<b>Voice</b></h1>
     <button class="icon-btn" id="openSettings" aria-label="Тохиргоо">⚙︎</button>
   </header>
-  <div id="status">Микрофон дээр дарж ярина уу</div>
+  <div id="status">Микрофон дээр дарж ярина уу · v3</div>
   <div class="mic-wrap"><button id="mic" aria-label="Ярих">🎤</button></div>
   <div id="timer"></div>
 
@@ -228,17 +228,23 @@ const rec = { ctx: null, stream: null, node: null, src: null, chunks: [], rate: 
 
 async function startRec() {
   rec.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
-  // iPhone: бичлэг бүрт шинэ AudioContext — хуучныг дахин ашиглахад iOS чимээгүй дуу өгдөг
-  if (rec.ctx) { try { await rec.ctx.close(); } catch (_) {} }
-  rec.ctx = new (window.AudioContext || window.webkitAudioContext)();
-  await rec.ctx.resume();
-  if (rec.ctx.state !== "running") { try { await rec.ctx.resume(); } catch (_) {} }
-  rec.rate = rec.ctx.sampleRate;
-  rec.src = rec.ctx.createMediaStreamSource(rec.stream);
-  rec.node = rec.ctx.createScriptProcessor(4096, 1, 1);
   rec.chunks = [];
-  rec.node.onaudioprocess = (e) => { if (rec.on) rec.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
-  rec.src.connect(rec.node); rec.node.connect(rec.ctx.destination);
+  rec.mr = null;
+  if (window.MediaRecorder) {
+    // iPhone: MediaRecorder-ээр бичээд дараа нь задлах нь ScriptProcessor-оос найдвартай
+    rec.mr = new MediaRecorder(rec.stream);
+    rec.mr.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+    rec.mr.start(1000);
+  } else {
+    if (rec.ctx) { try { await rec.ctx.close(); } catch (_) {} }
+    rec.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await rec.ctx.resume();
+    rec.rate = rec.ctx.sampleRate;
+    rec.src = rec.ctx.createMediaStreamSource(rec.stream);
+    rec.node = rec.ctx.createScriptProcessor(4096, 1, 1);
+    rec.node.onaudioprocess = (e) => { if (rec.on) rec.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+    rec.src.connect(rec.node); rec.node.connect(rec.ctx.destination);
+  }
   rec.on = true; rec.t0 = Date.now();
   rec.timer = setInterval(() => {
     const s = Math.floor((Date.now() - rec.t0) / 1000);
@@ -247,9 +253,21 @@ async function startRec() {
   }, 250);
 }
 
-function stopRec() {
+async function stopRec() {
   rec.on = false;
   clearInterval(rec.timer); $("timer").textContent = "";
+  if (rec.mr) {
+    const mr = rec.mr;
+    await new Promise((res) => { mr.onstop = res; try { mr.stop(); } catch (_) { res(); } });
+    rec.stream.getTracks().forEach(t => t.stop());
+    const blob = new Blob(rec.chunks, { type: mr.mimeType || "audio/mp4" });
+    const ab = await blob.arrayBuffer();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    let buf;
+    try { buf = await new Promise((res, rej) => { const p = ctx.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); }); }
+    finally { try { ctx.close(); } catch (_) {} }
+    return downsample(buf.getChannelData(0), buf.sampleRate, 16000);
+  }
   try { rec.src.disconnect(); rec.node.disconnect(); } catch (_) {}
   rec.stream.getTracks().forEach(t => t.stop());
   try { rec.ctx.close(); } catch (_) {}
@@ -306,9 +324,15 @@ async function toggle() {
     mic.classList.add("rec"); mic.textContent = "■"; setStatus("Ярина уу… дуусаад дахин дарна", "");
     return;
   }
-  const x = stopRec();
   mic.classList.remove("rec"); mic.textContent = "🎤";
-  if (!hasSpeech(x)) { setStatus("Дуу орсонгүй. Дахин оролдоно уу", "err"); return; }
+  let x;
+  busy = true;
+  try { x = await stopRec(); } catch (e) { busy = false; setStatus("Бичлэг задрахгүй байна: " + (e.message || e), "err"); return; }
+  busy = false;
+  if (!hasSpeech(x)) {
+    let pk = 0; for (let i = 0; i < x.length; i++) pk = Math.max(pk, Math.abs(x[i]));
+    setStatus(`Дуу орсонгүй (${(x.length / 16000).toFixed(1)} сек, түвшин ${pk.toFixed(3)}). Дахин оролдоно уу`, "err"); return;
+  }
   busy = true; mic.classList.add("busy"); setStatus("Таньж байна…", "");
   try {
     const text = await transcribe(toWavB64(x));
