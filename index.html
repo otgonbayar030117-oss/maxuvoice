@@ -228,8 +228,11 @@ const rec = { ctx: null, stream: null, node: null, src: null, chunks: [], rate: 
 
 async function startRec() {
   rec.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
-  rec.ctx = rec.ctx || new (window.AudioContext || window.webkitAudioContext)();
+  // iPhone: бичлэг бүрт шинэ AudioContext — хуучныг дахин ашиглахад iOS чимээгүй дуу өгдөг
+  if (rec.ctx) { try { await rec.ctx.close(); } catch (_) {} }
+  rec.ctx = new (window.AudioContext || window.webkitAudioContext)();
   await rec.ctx.resume();
+  if (rec.ctx.state !== "running") { try { await rec.ctx.resume(); } catch (_) {} }
   rec.rate = rec.ctx.sampleRate;
   rec.src = rec.ctx.createMediaStreamSource(rec.stream);
   rec.node = rec.ctx.createScriptProcessor(4096, 1, 1);
@@ -249,6 +252,8 @@ function stopRec() {
   clearInterval(rec.timer); $("timer").textContent = "";
   try { rec.src.disconnect(); rec.node.disconnect(); } catch (_) {}
   rec.stream.getTracks().forEach(t => t.stop());
+  try { rec.ctx.close(); } catch (_) {}
+  rec.ctx = null;
   let n = 0; rec.chunks.forEach(c => n += c.length);
   const x = new Float32Array(n); let o = 0; rec.chunks.forEach(c => { x.set(c, o); o += c.length; });
   return downsample(x, rec.rate, 16000);
@@ -269,9 +274,9 @@ function hasSpeech(x) {
   let loud = 0; const w = 480;
   for (let i = 0; i + w <= x.length; i += w) {
     let s = 0; for (let j = i; j < i + w; j++) s += x[j] * x[j];
-    if (Math.sqrt(s / w) > 0.01) loud++;
+    if (Math.sqrt(s / w) > 0.004) loud++;   // iPhone-ийн микрофон намуухан тул босгыг бууруулав
   }
-  return loud >= 5;
+  return loud >= 3;
 }
 
 function toWavB64(x) {
