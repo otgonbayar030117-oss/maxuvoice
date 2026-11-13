@@ -61,7 +61,7 @@
     <h1>Maxu<b>Voice</b></h1>
     <button class="icon-btn" id="openSettings" aria-label="Тохиргоо">⚙︎</button>
   </header>
-  <div id="status">Микрофон дээр дарж ярина уу · v3</div>
+  <div id="status">Микрофон дээр дарж ярина уу · v4</div>
   <div class="mic-wrap"><button id="mic" aria-label="Ярих">🎤</button></div>
   <div id="timer"></div>
 
@@ -313,7 +313,7 @@ function toWavB64(x) {
 }
 
 // ------------------------------------------------------------------ UI flow
-let busy = false, lastHeard = "";
+let busy = false, lastHeard = "", lastBase = "", lastFull = "";
 
 async function toggle() {
   const mic = $("mic");
@@ -338,8 +338,10 @@ async function toggle() {
     const text = await transcribe(toWavB64(x));
     if (!text) { setStatus("Юу ч танигдсангүй", "err"); return; }
     const out = $("out");
-    out.value = out.value.trim() ? out.value.trimEnd() + " " + text : text;
-    lastHeard = text;
+    lastBase = out.value.trim() ? out.value.trimEnd() + " " : "";
+    out.value = lastBase + text;
+    lastHeard = text; lastFull = out.value;
+    learnBtnState();
     addHistory(text);
     setStatus("Бэлэн — «Хуулах» дарж буулгана уу", "ok");
   } catch (e) {
@@ -371,12 +373,30 @@ async function copyOut() {
   catch (_) { $("out").select(); document.execCommand("copy"); setStatus("Хууллаа ✓", "ok"); }
 }
 
+function learnBtnState() {
+  const ready = !!lastHeard && $("out").value !== lastFull;
+  $("learn").className = "btn " + (ready ? "primary" : "secondary");
+}
+
+function flashLearn(text, ok) {
+  const b = $("learn");
+  b.textContent = text;
+  b.className = "btn " + (ok ? "primary" : "secondary");
+  b.style.background = ok ? "#16a34a" : "";
+  clearTimeout(flashLearn.t);
+  flashLearn.t = setTimeout(() => { b.textContent = "Засварыг сургах"; b.style.background = ""; learnBtnState(); }, 2500);
+}
+
 async function learnEdit() {
-  const meant = $("out").value.trim();
-  if (!lastHeard || !meant || meant === lastHeard) { setStatus("Сүүлийн бичвэрээ засаад дараа нь дарна уу", ""); return; }
+  const cur = $("out").value;
+  // Сүүлийн бичлэгийн хэсгийг л харьцуулна (өмнөх бичвэрүүдийг оролцуулахгүй)
+  const meant = (lastBase && cur.startsWith(lastBase) ? cur.slice(lastBase.length) : cur).trim();
+  if (!lastHeard) { flashLearn("Эхлээд ярьж бичүүлнэ үү", false); return; }
+  if (!meant || meant === lastHeard.trim()) { flashLearn("Буруу үгээ засаад дарна уу", false); return; }
   state.edits.push({ heard: lastHeard, meant }); state.edits = state.edits.slice(-60);
   await DB.set("edits", state.edits);
-  lastHeard = meant;
+  lastHeard = meant; lastFull = cur;
+  flashLearn(`Сурлаа ✓ (${state.edits.length} засвар)`, true);
   setStatus("Сурлаа ✓ Дараагийн удаа илүү зөв бичнэ", "ok");
 }
 
@@ -393,7 +413,8 @@ $("share").addEventListener("click", async () => {
   if (navigator.share) { try { await navigator.share({ text: t }); } catch (_) {} } else copyOut();
 });
 $("learn").addEventListener("click", learnEdit);
-$("clear").addEventListener("click", () => { $("out").value = ""; lastHeard = ""; setStatus("Микрофон дээр дарж ярина уу", ""); });
+$("out").addEventListener("input", learnBtnState);
+$("clear").addEventListener("click", () => { $("out").value = ""; lastHeard = ""; lastBase = ""; lastFull = ""; learnBtnState(); setStatus("Микрофон дээр дарж ярина уу", ""); });
 $("openSettings").addEventListener("click", () => { $("key").value = state.key; profInfo(); $("settings").showModal(); });
 $("saveSettings").addEventListener("click", async () => {
   state.key = $("key").value.trim(); await DB.set("key", state.key);
